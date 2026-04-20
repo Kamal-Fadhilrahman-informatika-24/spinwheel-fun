@@ -1,8 +1,7 @@
 // ============================================================
 // services/audio_service.dart
-// Sound effect saat spin menggunakan audioplayers
-// File audio: assets/sounds/spin.mp3, win.mp3
-// Kalau tidak punya file, bisa pakai AudioCache dari URL
+// FIX: Turun ke audioplayers ^4.0.1 (kompatibel Dart 3.1)
+// API v4 menggunakan setSource() + resume() atau play(source)
 // ============================================================
 
 import 'package:audioplayers/audioplayers.dart';
@@ -12,31 +11,34 @@ class AudioService {
   factory AudioService() => _instance;
   AudioService._();
 
+  // v4.x: buat instance terpisah per suara
   final AudioPlayer _spinPlayer = AudioPlayer();
   final AudioPlayer _winPlayer = AudioPlayer();
 
   bool soundEnabled = true;
 
-  // ── Suara saat roda mulai berputar ────────────────────────────
+  // ── Suara saat roda mulai berputar ───────────────────────────
+  // audioplayers v4: AudioPlayer.play(Source) — sama seperti v6
+  // bedanya: tidak ada setAudioContext, cukup try-catch kalau file tidak ada
   Future<void> playSpin() async {
     if (!soundEnabled) return;
     try {
-      // Coba dari asset lokal dulu; kalau tidak ada, skip
+      await _spinPlayer.stop();
       await _spinPlayer.play(AssetSource('sounds/spin.mp3'));
     } catch (_) {
-      // File tidak ditemukan — tidak apa-apa
+      // File audio tidak ada — tidak crash, cukup skip
     }
   }
 
-  // ── Suara saat hasil keluar ───────────────────────────────────
+  // ── Suara saat hasil keluar ──────────────────────────────────
   Future<void> playWin() async {
     if (!soundEnabled) return;
     try {
+      await _winPlayer.stop();
       await _winPlayer.play(AssetSource('sounds/win.mp3'));
     } catch (_) {}
   }
 
-  // ── Stop semua ────────────────────────────────────────────────
   Future<void> stopAll() async {
     await _spinPlayer.stop();
     await _winPlayer.stop();

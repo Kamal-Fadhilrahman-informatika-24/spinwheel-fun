@@ -19,8 +19,9 @@ dependencies:
   # State management
   provider: ^6.1.2
 
-  # Audio (sound effect)
-  audioplayers: ^5.2.1
+  # Audio (sound effect) — v4.0.1 kompatibel Dart SDK 3.1.x
+  # JANGAN naikkan ke ^5 atau ^6 tanpa upgrade Dart SDK ke 3.3+
+  audioplayers: ^4.0.1
 
   # SharedPreferences (dark mode, favorit, dll)
   shared_preferences: ^2.2.3

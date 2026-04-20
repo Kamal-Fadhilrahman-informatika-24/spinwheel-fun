@@ -325,6 +325,19 @@ class _HistoryCard extends StatelessWidget {
                       ),
                     ],
                   ),
+                  // ── TAMBAHAN: tombol delete ──────────────────
+                  const SizedBox(width: 6),
+                  GestureDetector(
+                    onTap: () => _confirmDelete(context),
+                    child: Padding(
+                      padding: const EdgeInsets.all(4),
+                      child: Icon(
+                        Icons.delete_outline,
+                        size: 18,
+                        color: cs.onSurface.withOpacity(0.35),
+                      ),
+                    ),
+                  ),
                 ],
               ),
               const SizedBox(height: 8),
@@ -345,6 +358,42 @@ class _HistoryCard extends StatelessWidget {
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  // ── Dialog konfirmasi delete ──────────────────────────────────
+  void _confirmDelete(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Hapus Riwayat?'),
+        content: Text('Hasil "${spin.result}" akan dihapus permanen.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Batal'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              Navigator.pop(ctx);
+              try {
+                await context.read<SpinProvider>().deleteHistory(spin.id);
+              } catch (e) {
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Gagal hapus: $e'),
+                      behavior: SnackBarBehavior.floating,
+                    ),
+                  );
+                }
+              }
+            },
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text('Hapus'),
+          ),
+        ],
       ),
     );
   }

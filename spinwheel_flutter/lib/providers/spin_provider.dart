@@ -9,7 +9,6 @@ import '../models/spin_model.dart';
 import '../services/supabase_service.dart';
 import '../services/notification_service.dart';
 import '../services/audio_service.dart';
-import 'dart:convert';
 
 class SpinProvider extends ChangeNotifier {
   final _supa = SupabaseService();
@@ -65,6 +64,12 @@ class SpinProvider extends ChangeNotifier {
     }
   }
 
+  // ── Shuffle (acak) urutan opsi ───────────────────────────────
+  void shuffleOptions() {
+    options.shuffle();
+    notifyListeners();
+  }
+
   // ── Toggle favorit ───────────────────────────────────────────
   void toggleFavorite(String option) {
     if (favorites.contains(option)) {
@@ -104,6 +109,9 @@ class SpinProvider extends ChangeNotifier {
   }
 
   // ── SPIN (dipanggil dari WheelPainter via animasi) ───────────
+  // CATATAN: playSpin() TIDAK dipanggil di sini.
+  // Dipanggil langsung dari UI (spin_screen.dart) agar
+  // browser/Flutter web mengizinkan audio (user gesture policy).
   Future<void> spin(TickerProvider vsync) async {
     if (isSpinning || options.length < 2) return;
 
@@ -111,8 +119,6 @@ class SpinProvider extends ChangeNotifier {
     winnerIndex = null;
     lastResult = null;
     notifyListeners();
-
-    await _audio.playSpin();
 
     // Animasi ditangani di SpinScreen via AnimationController
     // Provider hanya menyimpan state; lihat spin_screen.dart
@@ -158,6 +164,13 @@ class SpinProvider extends ChangeNotifier {
       isLoadingHistory = false;
       notifyListeners();
     }
+  }
+
+  // ── Hapus satu item history (by id) ──────────────────────────
+  Future<void> deleteHistory(String id) async {
+    await _supa.deleteSpin(id);
+    history.removeWhere((s) => s.id == id);
+    notifyListeners();
   }
 
   // ── Statistik sederhana ──────────────────────────────────────

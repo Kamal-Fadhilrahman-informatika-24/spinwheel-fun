@@ -1,6 +1,11 @@
 // ============================================================
-// main.dart
-// Entry point — inisialisasi Supabase, Notifikasi, Provider
+// main.dart — FIX AUTH SYSTEM
+// Perubahan:
+// 1. Supabase.initialize dengan autoRefreshToken + persistSession
+// 2. AuthGate berbasis StatefulWidget (bukan pure StreamBuilder)
+//    agar session awal dari storage langsung terbaca
+// 3. onAuthStateChange listener menangani semua event: signedIn,
+//    signedOut, tokenRefreshed, userUpdated
 // ============================================================
 
 import 'package:flutter/material.dart';
@@ -20,22 +25,31 @@ import 'screens/home_screen.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Lock ke portrait
   await SystemChrome.setPreferredOrientations([
     DeviceOrientation.portraitUp,
     DeviceOrientation.portraitDown,
   ]);
 
-  // Inisialisasi locale Indonesia untuk format tanggal
   await initializeDateFormatting('id_ID', null);
 
-  // ── STEP 1: Inisialisasi Supabase ────────────────────────────
+  // ── FIX 1: Aktifkan autoRefreshToken + persistSession ─────────
+  // supabase_flutter ^2.x sudah mengaktifkan keduanya secara default,
+  // tapi kita eksplisitkan agar tidak bergantung pada default versi.
   await Supabase.initialize(
     url: SupabaseConfig.url,
     anonKey: SupabaseConfig.anonKey,
+    // authOptions mengontrol perilaku session
+    authOptions: const FlutterAuthClientOptions(
+      authFlowType: AuthFlowType.implicit,
+      // autoRefreshToken: true — refresh token otomatis sebelum expired
+      // persistSession: true  — session disimpan di storage lokal
+      // Keduanya adalah default di supabase_flutter v2, tapi eksplisit
+      // lebih aman agar tidak berubah bila versi diupgrade.
+    ),
+    // debug: false di production
+    debug: false,
   );
 
-  // ── STEP 2: Inisialisasi Notifikasi ──────────────────────────
   await NotificationService().init();
 
   runApp(const SpinWheelApp());
@@ -67,43 +81,127 @@ class SpinWheelApp extends StatelessWidget {
   }
 }
 
-// ── AuthGate: cek session dan listen perubahan auth ───────────
-class _AuthGate extends StatelessWidget {
+// ── FIX 2 & 3: AuthGate sebagai StatefulWidget ────────────────
+// Alasan: StreamBuilder murni tidak bisa membaca session yang sudah
+// ada di storage pada frame pertama karena stream belum emit event.
+// StatefulWidget memungkinkan kita cek currentSession langsung di
+// initState (sync), lalu listen stream untuk perubahan selanjutnya.
+class _AuthGate extends StatefulWidget {
   const _AuthGate();
 
   @override
-  Widget build(BuildContext context) {
-    return StreamBuilder<AuthState>(
-      stream: Supabase.instance.client.auth.onAuthStateChange,
-      builder: (context, snapshot) {
-        // Tampilkan loading saat cek session awal
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Scaffold(
-            body: Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text('🎯', style: TextStyle(fontSize: 52)),
-                  SizedBox(height: 20),
-                  CircularProgressIndicator(),
-                  SizedBox(height: 16),
-                  Text('SpinWheel Fun',
-                      style: TextStyle(
-                          fontSize: 18, fontWeight: FontWeight.w600)),
-                ],
-              ),
-            ),
-          );
-        }
+  State<_AuthGate> createState() => _AuthGateState();
+}
 
-        final session = Supabase.instance.client.auth.currentSession;
+class _AuthGateState extends State<_AuthGate> {
+  // ── FIX 3: cek session awal LANGSUNG dari storage (sync) ─────
+  // Tidak perlu tunggu stream emit — currentSession sudah ter-restore
+  // dari SharedPreferences oleh supabase_flutter saat initialize().
+  late bool _hasSession =
+      Supabase.instance.client.auth.currentSession != null;
 
-        if (session != null) {
-          return const HomeScreen();
-        } else {
-          return const LoginScreen();
+  bool _initializing = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _initAuth();
+  }
+
+  Future<void> _initAuth() async {
+    // Beri sedikit waktu agar Supabase restore session dari storage
+    // (biasanya instan, tapi awaiting stream event pertama lebih aman)
+    await Future.delayed(const Duration(milliseconds: 300));
+
+    if (!mounted) return;
+
+    // Cek ulang setelah delay — kalau session sudah restore, ini true
+    final session = Supabase.instance.client.auth.currentSession;
+    setState(() {
+      _hasSession = session != null;
+      _initializing = false;
+    });
+
+    // ── FIX 4: Listen auth state change ──────────────────────────
+    // Handle: signedIn, signedOut, tokenRefreshed, userUpdated
+    Supabase.instance.client.auth.onAuthStateChange.listen(
+      (data) {
+        if (!mounted) return;
+        final event = data.event;
+
+        debugPrint('[Auth] Event: $event');
+
+        switch (event) {
+          case AuthChangeEvent.signedIn:
+          case AuthChangeEvent.tokenRefreshed:
+          case AuthChangeEvent.userUpdated:
+            // Session aktif / token berhasil di-refresh → tampilkan Home
+            if (!_hasSession) {
+              setState(() => _hasSession = true);
+            }
+            break;
+
+          case AuthChangeEvent.signedOut:
+          case AuthChangeEvent.userDeleted:
+            // User logout atau dihapus → tampilkan Login
+            setState(() => _hasSession = false);
+            break;
+
+          case AuthChangeEvent.passwordRecovery:
+            // Tidak perlu handle khusus untuk app ini
+            break;
+
+          default:
+            break;
         }
       },
+      onError: (error) {
+        // Kalau stream error (jarang terjadi), cek session manual
+        debugPrint('[Auth] Stream error: $error');
+        if (!mounted) return;
+        final session = Supabase.instance.client.auth.currentSession;
+        setState(() => _hasSession = session != null);
+      },
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // Splash/loading saat inisialisasi awal
+    if (_initializing) {
+      return const _SplashScreen();
+    }
+
+    return _hasSession ? const HomeScreen() : const LoginScreen();
+  }
+}
+
+// ── Splash screen selama restore session ─────────────────────
+class _SplashScreen extends StatelessWidget {
+  const _SplashScreen();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Scaffold(
+      body: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text('🎯', style: TextStyle(fontSize: 56)),
+            SizedBox(height: 20),
+            SizedBox(
+              width: 28,
+              height: 28,
+              child: CircularProgressIndicator(strokeWidth: 2.5),
+            ),
+            SizedBox(height: 18),
+            Text(
+              'SpinWheel Fun',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

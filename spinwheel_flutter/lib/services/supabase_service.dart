@@ -88,6 +88,18 @@ class SupabaseService {
         .toList();
   }
 
+  // ── Hapus satu spin by id ─────────────────────────────────────
+  Future<void> deleteSpin(String id) async {
+    final user = currentUser;
+    if (user == null) throw Exception('Belum login');
+
+    await _client
+        .from(SupabaseConfig.spinsTable)
+        .delete()
+        .eq('id', id)
+        .eq('user_id', user.id); // pastikan hanya bisa hapus milik sendiri
+  }
+
   // ── Nama user dari metadata ───────────────────────────────────
   String get userName {
     final meta = currentUser?.userMetadata;
